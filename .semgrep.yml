@@ -1,0 +1,24 @@
+# .semgrep.yml
+rules:
+  - id: robofang-telephony-secrets
+    patterns:
+      - pattern-either:
+          - pattern: |
+              "$VAR" = "$VAL"
+      - metavariable-regex:
+          metavariable: "$VAR"
+          regex: "(?i).*(password|secret|key|token|auth).*"
+      - metavariable-regex:
+          metavariable: "$VAL"
+          regex: ".+"
+    message: "Potential hardcoded credential or secret assignment detected. Use Environment Variables only."
+    severity: ERROR
+    languages: [python]
+
+  - id: robofang-telephony-pjsip-injection
+    patterns:
+      - pattern: |
+          subprocess.run(..., shell=True, ...)
+    message: "Insecure subprocess usage detected. Avoid shell=True to prevent SIP injection attacks."
+    severity: WARNING
+    languages: [python]

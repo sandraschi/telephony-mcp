@@ -1,0 +1,22 @@
+[project]
+name = "telephony-mcp"
+version = "0.1.0"
+description = "SOTA 2026 Telephony Bridge for Autonomous Emergency Dispatch"
+authors = [
+    { name = "Antigravity", email = "antigravity@deepmind.google.com" }
+]
+dependencies = [
+    "fastmcp>=3.2.0",
+    "twilio>=8.0.0",
+    "python-dotenv>=1.0.0",
+    "pydantic>=2.0.0"
+]
+readme = "README.md"
+requires-python = ">=3.10"
+
+[project.scripts]
+telephony-mcp = "telephony_mcp.server:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

@@ -1,0 +1,14 @@
+services:
+  asterisk:
+    image: andrius/asterisk:v20
+    container_name: robofang-telephony-gateway
+    restart: always
+    network_mode: host
+    volumes:
+      - ./asterisk/pjsip.conf:/etc/asterisk/pjsip.conf:ro
+      - ./asterisk/extensions.conf:/etc/asterisk/extensions.conf:ro
+      - ./asterisk/ari.conf:/etc/asterisk/ari.conf:ro
+      - ./asterisk/modules.conf:/etc/asterisk/modules.conf:ro
+    environment:
+      - ASTERISK_LOG_LEVEL=3
+    # Note: Host mode is used for simple RTP port handling on localhost/internal network.
