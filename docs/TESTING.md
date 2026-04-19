@@ -37,7 +37,7 @@ Use the `telephony_dispatch_test` tool to place a call to your Linphone instance
    *"Achtung. Dies ist ein Test der RoboFang Rettungskette..."*
 
 > [!TIP]
-> **No Airgap**: Notice that you are hearing the AI perfectly even if your PC microphone is muted. This proves the **Clean Bridge** is working correctly and the fleet is ready for industrialized dispatch.
+> **No Airgap**: Notice that you are hearing the AI perfectly even if your PC microphone is muted. This proves the **Clean Bridge** is working correctly and the fleet is ready for dispatch.
 
 ---
 **Next Step**: Once you've confirmed the Linphone test, you can add your real **Austrian SIP Credentials** to the `asterisk/pjsip.conf` to enable calls to your relatives' mobile phones.

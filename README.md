@@ -1,4 +1,4 @@
-# 📞 Telephony-MCP (Industrial SIP Gateway)
+# 📞 Telephony-MCP (SIP Gateway)
 
 **Autonomous Emergency Communication & Digital Telephony Bridge.**
 
@@ -10,8 +10,8 @@ Telephony-MCP is a modular FastMCP server designed for high-fidelity, sovereign 
 
 - **Clean Bridge Architecture**: Direct digital audio injection via **Asterisk ARI** and **AudioSocket**.
 - **Provider Agnostic**: Factory pattern support for both **Asterisk/SIP** (Sovereign) and **Twilio** (Legacy/Cloud).
-- **Industrial Rescue (AED)**: Purpose-built for Level 4 Autonomous Emergency Dispatch.
-- **Sovereign Security Trinity**: Integrated **Ruff**, **Biome**, and **Semgrep** for industrial-grade code quality.
+- **Rescue (AED)**: Purpose-built for Level 4 Autonomous Emergency Dispatch.
+- **Sovereign Security Trinity**: Integrated **Ruff**, **Biome**, and **Semgrep** for production-grade code quality.
 
 ## 🏗️ Architecture
 
