@@ -4,10 +4,12 @@ import logging
 import os
 from typing import Any
 
-import aiohttp
+from telephony_mcp.ari_client import ARIClient
+from telephony_mcp.audio import synthesize_wav
 from telephony_mcp.providers.base import TelephonyProvider
 
 logger = logging.getLogger(__name__)
+
 
 class AsteriskProvider(TelephonyProvider):
     def __init__(self):
@@ -15,50 +17,52 @@ class AsteriskProvider(TelephonyProvider):
         self.ari_user = os.getenv("ASTERISK_ARI_USER", "robofang")
         self.ari_pass = os.getenv("ASTERISK_ARI_PASS", "robofang_pass")
         self.app_name = "robofang"
-        self.default_tech = "PJSIP/provider-endpoint" # From pjsip.conf
+        # PJSIP outbound endpoint name from pjsip.conf [provider-endpoint]
+        self.outbound_endpoint = os.getenv("ASTERISK_OUTBOUND_ENDPOINT", "provider-endpoint")
 
-    async def make_call(self, to_number: str, message: str, script_type: str = "emergency") -> dict[str, Any]:
+    def _build_endpoint(self, to: str) -> str:
         """
-        1. Originates call via ARI to a Stasis app.
-        2. Once answered, plays TTS (handled via Playback URLs in Asterisk 20+).
-        Note: For industrial SOTA, we would use a local TTS engine and provide the URL.
+        Build the ARI endpoint string for an outbound call.
+
+        E.164 numbers   → PJSIP/provider-endpoint/sip:+43...
+        Full SIP URIs   → PJSIP/linphone@localhost (test calls)
         """
-        auth = aiohttp.BasicAuth(self.ari_user, self.ari_pass)
+        if to.startswith("sip:"):
+            # Already a SIP URI — strip prefix for PJSIP dial
+            return f"PJSIP/{to[4:]}"
+        return f"PJSIP/{self.outbound_endpoint}/sip:{to}"
 
-        # In a real SOTA 2026 setup, we would call an internal TTS service to generate
-        # a high-fidelity German wav/mp3 and get its URL.
-        # For this industrial beta, we assume we use Asterisk's internal playback
-        # or a pre-defined TTS bridge.
+    async def make_call(
+        self, to_number: str, message: str, script_type: str = "emergency"
+    ) -> dict[str, Any]:
+        """
+        Synthesize `message` via speechops (Gemini TTS, fallback pre-recorded WAV),
+        originate an outbound call via ARI, wait for answer, play the audio, hang up.
+        """
+        # Step 1: get audio
+        wav_path = await synthesize_wav(message, script_type)
+        if wav_path is None:
+            logger.warning("No audio available — call will connect silently")
 
-        originate_url = f"{self.ari_url}/channels"
-        params = {
-            "endpoint": f"{self.default_tech}/sip:{to_number}",
-            "app": self.app_name,
-            "appArgs": message, # Pass message to Stasis app
-            "callerId": "RoboFang Responder",
-            "variables": {"MESSAGE_TEXT": message}
-        }
+        # Step 2: originate + lifecycle
+        endpoint = self._build_endpoint(to_number)
+        async with ARIClient(
+            self.ari_url, self.ari_user, self.ari_pass, self.app_name
+        ) as ari:
+            result = await ari.call_and_play(endpoint, wav_path)
 
-        try:
-            async with aiohttp.ClientSession(auth=auth) as session:
-                async with session.post(originate_url, params=params) as resp:
-                    if resp.status == 200:
-                        data = await resp.json()
-                        channel_id = data.get("id")
-                        logger.info(f"Asterisk call originated: {channel_id}")
-                        return {"success": True, "call_id": channel_id, "mode": "asterisk"}
-                    else:
-                        text = await resp.text()
-                        logger.error(f"Asterisk ARI Fail ({resp.status}): {text}")
-                        return {"success": False, "error": f"ARI status {resp.status}"}
-        except Exception as e:
-            logger.error(f"Asterisk connection error: {e}")
-            return {"success": False, "error": str(e)}
+        return result
 
     async def send_sms(self, to_number: str, text: str) -> dict[str, Any]:
         """
-        Note: SIP SMS depends on provider support (SIP MESSAGE).
-        Twilio is better for SMS, but Asterisk can do it if the trunk allows.
+        SIP MESSAGE (SMS over SIP) is trunk-dependent.
+        Most Austrian SIP trunks do not support it — use Twilio for SMS.
         """
-        logger.info(f"SIP SMS to {to_number} (NOT IMPLEMENTED - SIP trunk dependent)")
-        return {"success": False, "error": "SIP SMS not supported by current trunk driver"}
+        logger.info(f"SIP SMS to {to_number} — not supported by Asterisk provider")
+        return {
+            "success": False,
+            "error": (
+                "SIP SMS is trunk-dependent and not implemented. "
+                "Set TELEPHONY_PROVIDER=twilio for SMS support."
+            ),
+        }

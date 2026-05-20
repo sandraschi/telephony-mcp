@@ -1,0 +1,201 @@
+# src/telephony_mcp/server.py
+
+import asyncio
+import logging
+import os
+import time
+from datetime import datetime, timezone
+from typing import Any
+
+from fastmcp import FastMCP, Context
+
+from telephony_mcp.db import get_stats, init_db, log_call
+from telephony_mcp.providers.asterisk_provider import AsteriskProvider
+from telephony_mcp.providers.twilio_provider import TwilioProvider
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("telephony-mcp")
+
+# Init DB on import — safe, idempotent
+init_db()
+
+mcp = FastMCP(
+    "Telephony Bridge",
+    instructions=(
+        "MCP server for telephony operations — emergency calls and SMS via "
+        "Asterisk/ARI (with speechops Gemini TTS) or Twilio. "
+        "Set TELEPHONY_PROVIDER=asterisk (default) or TELEPHONY_PROVIDER=twilio. "
+        "Numbers must be E.164 format (+43...). All calls are logged to SQLite audit DB."
+    ),
+)
+
+
+def get_provider():
+    """Return the active telephony provider based on TELEPHONY_PROVIDER env var."""
+    mode = os.getenv("TELEPHONY_PROVIDER", "asterisk").lower()
+    if mode == "twilio":
+        return TwilioProvider()
+    return AsteriskProvider()
+
+
+@mcp.tool()
+async def make_emergency_call(
+    to_number: str,
+    message: str,
+    ctx: Context,
+) -> dict[str, Any]:
+    """
+    Trigger an automated emergency call with a German TTS message.
+
+    Args:
+        to_number: Destination phone number in E.164 format (e.g. +43664XXXXXXX).
+        message: The German-language message to be spoken to the recipient.
+
+    Returns:
+        dict with keys: success (bool), call_id (str), mode (str), error (str, on failure).
+    """
+    await ctx.info(f"Initiating emergency call to {to_number}")
+    provider = get_provider()
+    t0 = time.monotonic()
+    result = await provider.make_call(to_number, message, script_type="emergency")
+    duration_ms = int((time.monotonic() - t0) * 1000)
+    await log_call({
+        "ts": datetime.now(timezone.utc).isoformat(),
+        "op": "make_call",
+        "to_number": to_number,
+        "message": message,
+        "script_type": "emergency",
+        "provider": result.get("mode", os.getenv("TELEPHONY_PROVIDER", "asterisk")),
+        "success": result.get("success", False),
+        "call_id": result.get("call_id"),
+        "error": result.get("error"),
+        "audio_played": result.get("audio_played", False),
+        "duration_ms": duration_ms,
+    })
+    return result
+
+
+@mcp.tool()
+async def send_emergency_sms(
+    to_number: str,
+    text: str,
+    ctx: Context,
+) -> dict[str, Any]:
+    """
+    Send an automated emergency SMS.
+
+    Args:
+        to_number: Destination phone number in E.164 format (e.g. +43664XXXXXXX).
+        text: SMS body content.
+
+    Returns:
+        dict with keys: success (bool), sms_id (str), mode (str), error (str, on failure).
+    """
+    await ctx.info(f"Sending emergency SMS to {to_number}")
+    provider = get_provider()
+    t0 = time.monotonic()
+    result = await provider.send_sms(to_number, text)
+    duration_ms = int((time.monotonic() - t0) * 1000)
+    await log_call({
+        "ts": datetime.now(timezone.utc).isoformat(),
+        "op": "send_sms",
+        "to_number": to_number,
+        "message": text,
+        "script_type": "sms",
+        "provider": result.get("mode", os.getenv("TELEPHONY_PROVIDER", "asterisk")),
+        "success": result.get("success", False),
+        "call_id": result.get("sms_id"),
+        "error": result.get("error"),
+        "audio_played": False,
+        "duration_ms": duration_ms,
+    })
+    return result
+
+
+@mcp.tool()
+async def telephony_dispatch_test(
+    sip_uri: str,
+    ctx: Context,
+) -> dict[str, Any]:
+    """
+    Dry-run rescue verification call to a test SIP URI.
+
+    Sends a fixed German test message to verify the RoboFang rescue chain is
+    operational. Use a Linphone or similar softphone as the target.
+
+    Args:
+        sip_uri: Destination SIP URI (e.g. sip:linphone@localhost).
+
+    Returns:
+        dict with keys: success (bool), call_id (str), mode (str), error (str, on failure).
+    """
+    test_msg = (
+        "Achtung. Dies ist ein Test der RoboFang Rettungskette. "
+        "Bitte bestaetigen Sie den Empfang."
+    )
+    await ctx.info(f"Dispatch test call to {sip_uri}")
+    provider = get_provider()
+    t0 = time.monotonic()
+    result = await provider.make_call(sip_uri, test_msg, script_type="test")
+    duration_ms = int((time.monotonic() - t0) * 1000)
+    await log_call({
+        "ts": datetime.now(timezone.utc).isoformat(),
+        "op": "dispatch_test",
+        "to_number": sip_uri,
+        "message": test_msg,
+        "script_type": "test",
+        "provider": result.get("mode", os.getenv("TELEPHONY_PROVIDER", "asterisk")),
+        "success": result.get("success", False),
+        "call_id": result.get("call_id"),
+        "error": result.get("error"),
+        "audio_played": result.get("audio_played", False),
+        "duration_ms": duration_ms,
+    })
+    return result
+
+
+@mcp.tool()
+async def telephony_status(ctx: Context) -> dict[str, Any]:
+    """
+    Return current telephony configuration, provider readiness, and audit stats.
+
+    Returns:
+        dict with provider, config (redacted), ready flag, and call statistics.
+    """
+    provider_name = os.getenv("TELEPHONY_PROVIDER", "asterisk").lower()
+    if provider_name == "twilio":
+        ready = bool(
+            os.getenv("TWILIO_ACCOUNT_SID")
+            and os.getenv("TWILIO_AUTH_TOKEN")
+            and os.getenv("TWILIO_FROM_NUMBER")
+        )
+        config = {
+            "TWILIO_ACCOUNT_SID": "set" if os.getenv("TWILIO_ACCOUNT_SID") else "missing",
+            "TWILIO_AUTH_TOKEN": "set" if os.getenv("TWILIO_AUTH_TOKEN") else "missing",
+            "TWILIO_FROM_NUMBER": os.getenv("TWILIO_FROM_NUMBER", "missing"),
+        }
+    else:
+        ready = True
+        config = {
+            "ASTERISK_ARI_URL": os.getenv("ASTERISK_ARI_URL", "http://localhost:8088/ari"),
+            "ASTERISK_ARI_USER": os.getenv("ASTERISK_ARI_USER", "robofang"),
+            "ASTERISK_ARI_PASS": "set" if os.getenv("ASTERISK_ARI_PASS") else "default",
+            "SPEECHOPS_BASE_URL": os.getenv("SPEECHOPS_BASE_URL", "http://localhost:10918"),
+        }
+
+    stats = await get_stats()
+    return {
+        "provider": provider_name,
+        "ready": ready,
+        "config": config,
+        "stats": stats,
+    }
+
+
+def main() -> None:
+    init_db()
+    mcp.run()
+
+
+if __name__ == "__main__":
+    main()

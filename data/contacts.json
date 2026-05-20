@@ -1,0 +1,12 @@
+{
+  "steve": {
+    "name": "Steve",
+    "number": "+43REPLACE_STEVE",
+    "notes": "Brother, retired bank IT, Vienna"
+  },
+  "marion": {
+    "name": "Marion",
+    "number": "+43REPLACE_MARION",
+    "notes": "Sister, Hollabrunn"
+  }
+}

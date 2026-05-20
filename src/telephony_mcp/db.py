@@ -1,0 +1,159 @@
+# src/telephony_mcp/db.py
+#
+# SQLite audit log for all telephony operations.
+# Accessed by both the MCP tools (writes) and the Starlette webapp (reads).
+
+import asyncio
+import json
+import logging
+import os
+import sqlite3
+from dataclasses import asdict, dataclass
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+
+logger = logging.getLogger(__name__)
+
+DB_PATH = Path(
+    os.getenv(
+        "TELEPHONY_DB_PATH",
+        str(Path(__file__).parent.parent.parent.parent / "data" / "calls.db"),
+    )
+)
+
+
+@dataclass
+class CallRecord:
+    id: int | None
+    ts: str               # ISO-8601 UTC
+    op: str               # make_call | send_sms | dispatch_test
+    to_number: str
+    message: str
+    script_type: str
+    provider: str         # asterisk | twilio | mock
+    success: bool
+    call_id: str | None
+    error: str | None
+    audio_played: bool
+    duration_ms: int      # wall time of the operation
+
+
+def _get_conn() -> sqlite3.Connection:
+    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(str(DB_PATH))
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
+def init_db() -> None:
+    """Create tables if they don't exist. Safe to call multiple times."""
+    with _get_conn() as conn:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS calls (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                ts           TEXT NOT NULL,
+                op           TEXT NOT NULL,
+                contact_name TEXT,
+                to_number    TEXT NOT NULL,
+                message      TEXT NOT NULL,
+                script_type  TEXT NOT NULL DEFAULT 'general',
+                provider     TEXT NOT NULL,
+                success      INTEGER NOT NULL,
+                call_id      TEXT,
+                error        TEXT,
+                audio_played INTEGER NOT NULL DEFAULT 0,
+                duration_ms  INTEGER NOT NULL DEFAULT 0
+            )
+        """)
+        # Migrate existing DB: add contact_name if missing
+        cols = [r[1] for r in conn.execute("PRAGMA table_info(calls)").fetchall()]
+        if "contact_name" not in cols:
+            conn.execute("ALTER TABLE calls ADD COLUMN contact_name TEXT")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_calls_ts ON calls (ts DESC)")
+        conn.commit()
+    logger.info(f"Audit DB ready: {DB_PATH}")
+
+
+async def log_call(record: dict[str, Any]) -> int:
+    """Insert a call record. Returns the new row id."""
+    def _insert():
+        with _get_conn() as conn:
+            cur = conn.execute(
+                """INSERT INTO calls
+                   (ts, op, contact_name, to_number, message, script_type, provider,
+                    success, call_id, error, audio_played, duration_ms)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (
+                    record.get("ts", datetime.now(timezone.utc).isoformat()),
+                    record["op"],
+                    record.get("contact_name"),
+                    record["to_number"],
+                    record["message"],
+                    record.get("script_type", "general"),
+                    record.get("provider", "unknown"),
+                    int(record.get("success", False)),
+                    record.get("call_id"),
+                    record.get("error"),
+                    int(record.get("audio_played", False)),
+                    record.get("duration_ms", 0),
+                ),
+            )
+            conn.commit()
+            return cur.lastrowid
+
+    return await asyncio.to_thread(_insert)
+
+
+async def get_calls(
+    limit: int = 100,
+    offset: int = 0,
+    success_filter: bool | None = None,
+    op_filter: str | None = None,
+) -> list[dict[str, Any]]:
+    def _query():
+        wheres = []
+        params: list[Any] = []
+        if success_filter is not None:
+            wheres.append("success = ?")
+            params.append(int(success_filter))
+        if op_filter:
+            wheres.append("op = ?")
+            params.append(op_filter)
+        where_clause = ("WHERE " + " AND ".join(wheres)) if wheres else ""
+        params += [limit, offset]
+        with _get_conn() as conn:
+            rows = conn.execute(
+                f"SELECT * FROM calls {where_clause} ORDER BY ts DESC LIMIT ? OFFSET ?",
+                params,
+            ).fetchall()
+            return [dict(r) for r in rows]
+
+    return await asyncio.to_thread(_query)
+
+
+async def get_call(call_id: int) -> dict[str, Any] | None:
+    def _query():
+        with _get_conn() as conn:
+            row = conn.execute("SELECT * FROM calls WHERE id = ?", (call_id,)).fetchone()
+            return dict(row) if row else None
+
+    return await asyncio.to_thread(_query)
+
+
+async def get_stats() -> dict[str, Any]:
+    def _query():
+        with _get_conn() as conn:
+            total = conn.execute("SELECT COUNT(*) FROM calls").fetchone()[0]
+            success = conn.execute("SELECT COUNT(*) FROM calls WHERE success=1").fetchone()[0]
+            last = conn.execute(
+                "SELECT ts, to_number, success FROM calls ORDER BY ts DESC LIMIT 1"
+            ).fetchone()
+            return {
+                "total_calls": total,
+                "successful": success,
+                "failed": total - success,
+                "last_call": dict(last) if last else None,
+            }
+
+    return await asyncio.to_thread(_query)

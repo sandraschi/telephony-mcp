@@ -1,6 +1,6 @@
 services:
   asterisk:
-    image: andrius/asterisk:v20
+    image: andrius/asterisk:latest
     container_name: robofang-telephony-gateway
     restart: always
     network_mode: host
@@ -9,6 +9,13 @@ services:
       - ./asterisk/extensions.conf:/etc/asterisk/extensions.conf:ro
       - ./asterisk/ari.conf:/etc/asterisk/ari.conf:ro
       - ./asterisk/modules.conf:/etc/asterisk/modules.conf:ro
+      # TTS WAVs written by telephony-mcp/audio.py → readable by ARI sound: URIs
+      # Container path must match ARI_SOUND_PREFIX = "telephony_tts" in ari_client.py
+      - ./audio/tts:/var/lib/asterisk/sounds/telephony_tts:ro
+      # Pre-recorded fallback WAVs (optional, silence if missing)
+      - ./audio/fallback:/var/lib/asterisk/sounds/telephony_fallback:ro
     environment:
       - ASTERISK_LOG_LEVEL=3
-    # Note: Host mode is used for simple RTP port handling on localhost/internal network.
+    # network_mode: host simplifies RTP port handling for local/internal trunks.
+    # For production with a remote SIP provider, remove host mode and expose
+    # UDP 5060 (SIP) and the RTP range (e.g. 10000-20000) explicitly.

@@ -1,0 +1,131 @@
+# telephony-mcp — AI Phone Agent TODO
+
+> Generated: 2026-05-01
+> Status: Phase 1 complete — Phase 2 next (AudioSocket)
+
+---
+
+## Phase 1 — Generalise + Contacts ✓ DONE
+
+Goal: replace the hardcoded emergency call with a general `make_call(contact, message)`
+that resolves names ("Steve", "Marion") to E.164 numbers from a local contacts store.
+
+- [x] `src/telephony_mcp/contacts.py` — JSON-backed contact store
+      - `load_contacts()` / `save_contacts()`
+      - `resolve(name_or_number) -> E.164 | None`
+- [x] MCP tools: `add_contact`, `list_contacts`, `remove_contact`
+- [x] Generalise `make_emergency_call` → `make_call(contact, message, script_type="general")`
+      - accepts name ("Steve") or raw E.164 (+43...)
+      - resolves via contacts store
+      - keep `make_emergency_call` as thin wrapper for backward compat
+- [x] `data/contacts.json` — seed with Steve + Marion placeholders
+- [x] Audit DB: add `contact_name` column (with migration for existing DBs)
+- [x] Webapp call log: show contact_name column
+
+---
+
+## Phase 2 — AudioSocket Bidirectional Bridge
+
+Goal: real audio in/out over a persistent TCP socket so the app can hear the caller.
+This is the prerequisite for STT and the conversation loop.
+
+- [ ] `src/telephony_mcp/audiosocket.py`
+      - `AudioSocketServer` — asyncio TCP server on configurable port (default 9092)
+      - Protocol: 2-byte kind | 2-byte length | payload
+        - 0x00 = slin16 PCM audio (8 kHz, 16-bit, mono)
+        - 0x01 = DTMF digit
+        - 0xFF = hangup signal
+      - `AudioSocketSession` per connection: receive loop, send queue
+- [ ] Asterisk `extensions.conf`: add AudioSocket dialplan entry
+      ```
+      exten => _X.,1,NoOp(AudioSocket bridge)
+       same => n,AudioSocket(robofang-audio,localhost:9092)
+       same => n,Hangup()
+      ```
+- [ ] `ari_client.py`: after StasisStart, redirect channel to AudioSocket app
+      instead of playing a static WAV
+- [ ] Integration test: call Linphone, speak 5 words, assert transcript non-empty
+      - test script: `tests/test_audiosocket_echo.py`
+
+---
+
+## Phase 3 — Conversation Loop
+
+Goal: full duplex AI phone agent. Caller speaks → STT → LLM → TTS → caller hears reply.
+
+- [ ] `webrtcvad` dependency — add to pyproject.toml
+- [ ] VAD integration in `AudioSocketSession.receive_loop()`
+      - accumulate 20ms PCM frames
+      - detect end-of-utterance: N consecutive silent frames (configurable, default 800ms)
+      - emit complete speech segment as bytes
+- [ ] `src/telephony_mcp/conversation.py`
+      - `ConversationSession(contact_name, system_prompt, max_turns, llm_provider)`
+      - `async turn(audio_bytes) -> audio_bytes` — the full STT→LLM→TTS pipeline
+      - `is_done() -> bool` — max_turns reached, LLM signalled goodbye, or silence timeout
+- [ ] STT: POST speech segment to `speechops /api/v1/transcribe` → text
+- [ ] LLM: Gemini via direct API (primary); Ollama/Qwen3.5 fallback
+      - system_prompt injected per call — caller sets persona/goal
+      - history maintained across turns in ConversationSession
+      - LLM end-signal: response contains "[END_CALL]" token or similar
+- [ ] TTS: `audio.py:synthesize_wav(text)` → PCM → send via AudioSocket
+- [ ] New MCP tool: `start_conversation(contact, system_prompt, max_turns=10)`
+- [ ] Persist full transcript (all turns) to audit DB as JSON blob
+
+---
+
+## Phase 4 — Polish
+
+- [ ] Webapp: **Conversations** page
+      - list past conversations with turn count, duration, contact
+      - click to expand full transcript with timestamps per turn
+- [ ] Rate limiting: max N outbound calls/hour per contact (env: `MAX_CALLS_PER_HOUR`)
+- [ ] Dry-run mode: `start_conversation(..., dry_run=True)` — runs LLM loop,
+      logs transcript, no actual call placed. Useful for testing prompts.
+- [ ] Graceful mid-call failure: if AudioSocket drops, log + hangup cleanly
+- [ ] `audio/fallback/general.wav` — pre-recorded generic German greeting WAV
+- [ ] `docs/PHONE_AGENT.md` — usage guide, examples, Steve/Marion setup walkthrough
+
+---
+
+## Key files reference
+
+| File | Phase | Status |
+|------|-------|--------|
+| `src/telephony_mcp/contacts.py` | 1 | **DONE** |
+| `src/telephony_mcp/audio.py` | 1+ | **DONE** |
+| `src/telephony_mcp/ari_client.py` | 1+2 | **DONE** (Phase 2: needs AudioSocket redirect) |
+| `src/telephony_mcp/db.py` | 1 | **DONE** (contact_name + migration) |
+| `src/telephony_mcp/server.py` | 1+ | **DONE** (make_call, contact tools, audit logging) |
+| `data/contacts.json` | 1 | **DONE** (Steve + Marion — fill real numbers) |
+| `webapp/backend/main.py` | 1 | **DONE** |
+| `webapp/frontend/src/App.tsx` | 1,4 | **DONE** Phase 1 — Phase 4 adds Conversations page |
+| `src/telephony_mcp/audiosocket.py` | 2 | **TODO** |
+| `src/telephony_mcp/conversation.py` | 3 | **TODO** |
+| `docs/PHONE_AGENT.md` | 4 | **TODO** |
+
+---
+
+## AudioSocket protocol reference
+
+```
+Frame format: [KIND:u8][KIND:u8][LEN:u8][LEN:u8][PAYLOAD:bytes]
+              ← big-endian uint16 kind →← big-endian uint16 len →
+
+Kind values:
+  0x0000  Audio (slin16, 8 kHz, 16-bit signed, mono)
+  0x0001  DTMF (1 byte payload: the digit character)
+  0x00FF  Hangup (len=0, no payload)
+
+Audio format: 8000 Hz, 16-bit signed little-endian PCM (slin16)
+Frame size:   160 bytes = 20ms of audio (standard for webrtcvad)
+```
+
+## webrtcvad VAD notes
+
+```python
+import webrtcvad
+vad = webrtcvad.Vad(aggressiveness=2)  # 0-3, 3=most aggressive
+# frame must be exactly 10/20/30ms of 8kHz slin16 = 160/320/480 bytes
+is_speech = vad.is_speech(frame_bytes, sample_rate=8000)
+# End-of-utterance: ~40 consecutive silent 20ms frames = 800ms silence
+```

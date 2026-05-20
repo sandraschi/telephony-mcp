@@ -1,0 +1,173 @@
+# webapp/backend/main.py
+#
+# Starlette 1.0 backend for telephony-mcp audit dashboard.
+# Port: 10952
+#
+# Endpoints:
+#   GET  /api/health           — liveness + Asterisk + speechops probe
+#   GET  /api/capabilities     — feature flags for frontend gating
+#   GET  /api/calls            — paginated call log (?limit=&offset=&success=&op=)
+#   GET  /api/calls/{id}       — single call record
+#   GET  /api/stats            — aggregate counts
+#   GET  /api/status           — provider config + connectivity
+
+import os
+import sys
+from contextlib import asynccontextmanager
+from pathlib import Path
+
+import aiohttp
+import uvicorn
+from starlette.applications import Starlette
+from starlette.middleware.cors import CORSMiddleware
+from starlette.requests import Request
+from starlette.responses import JSONResponse
+from starlette.routing import Route
+
+# Resolve src/ on path so we can import telephony_mcp
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
+
+from telephony_mcp.db import get_call, get_calls, get_stats, init_db
+
+BACKEND_PORT = int(os.getenv("TELEPHONY_BACKEND_PORT", "10952"))
+ASTERISK_ARI_URL = os.getenv("ASTERISK_ARI_URL", "http://localhost:8088/ari")
+ASTERISK_ARI_USER = os.getenv("ASTERISK_ARI_USER", "robofang")
+ASTERISK_ARI_PASS = os.getenv("ASTERISK_ARI_PASS", "robofang_pass")
+SPEECHOPS_BASE_URL = os.getenv("SPEECHOPS_BASE_URL", "http://localhost:10918")
+
+
+@asynccontextmanager
+async def lifespan(app):
+    init_db()
+    async with aiohttp.ClientSession() as session:
+        app.state.http = session
+        yield
+
+
+async def health(request: Request) -> JSONResponse:
+    http: aiohttp.ClientSession = request.app.state.http
+
+    # Probe Asterisk ARI
+    asterisk_ok = False
+    try:
+        auth = aiohttp.BasicAuth(ASTERISK_ARI_USER, ASTERISK_ARI_PASS)
+        async with http.get(
+            f"{ASTERISK_ARI_URL}/asterisk/info", auth=auth, timeout=aiohttp.ClientTimeout(total=3)
+        ) as r:
+            asterisk_ok = r.status == 200
+    except Exception:
+        pass
+
+    # Probe speechops
+    speechops_ok = False
+    try:
+        async with http.get(
+            f"{SPEECHOPS_BASE_URL}/api/v1/health", timeout=aiohttp.ClientTimeout(total=3)
+        ) as r:
+            speechops_ok = r.status == 200
+    except Exception:
+        pass
+
+    return JSONResponse({
+        "status": "healthy",
+        "version": "0.2.0",
+        "asterisk": asterisk_ok,
+        "speechops": speechops_ok,
+    })
+
+
+async def capabilities(request: Request) -> JSONResponse:
+    return JSONResponse({
+        "audit_log": True,
+        "asterisk_provider": True,
+        "twilio_provider": True,
+        "speechops_tts": True,
+        "fallback_audio": True,
+    })
+
+
+async def calls_list(request: Request) -> JSONResponse:
+    limit = min(int(request.query_params.get("limit", 50)), 500)
+    offset = int(request.query_params.get("offset", 0))
+    success_param = request.query_params.get("success")
+    success_filter = None
+    if success_param == "1":
+        success_filter = True
+    elif success_param == "0":
+        success_filter = False
+    op_filter = request.query_params.get("op") or None
+
+    rows = await get_calls(
+        limit=limit, offset=offset,
+        success_filter=success_filter, op_filter=op_filter,
+    )
+    for r in rows:
+        r["success"] = bool(r["success"])
+        r["audio_played"] = bool(r["audio_played"])
+        r.setdefault("contact_name", None)
+
+    return JSONResponse({"calls": rows, "limit": limit, "offset": offset})
+
+
+async def call_detail(request: Request) -> JSONResponse:
+    try:
+        cid = int(request.path_params["id"])
+    except (ValueError, KeyError):
+        return JSONResponse({"error": "invalid id"}, status_code=400)
+    row = await get_call(cid)
+    if row is None:
+        return JSONResponse({"error": "not found"}, status_code=404)
+    row["success"] = bool(row["success"])
+    row["audio_played"] = bool(row["audio_played"])
+    return JSONResponse(row)
+
+
+async def stats(request: Request) -> JSONResponse:
+    data = await get_stats()
+    return JSONResponse(data)
+
+
+async def status(request: Request) -> JSONResponse:
+    provider = os.getenv("TELEPHONY_PROVIDER", "asterisk").lower()
+    if provider == "twilio":
+        cfg = {
+            "TWILIO_ACCOUNT_SID": "set" if os.getenv("TWILIO_ACCOUNT_SID") else "missing",
+            "TWILIO_AUTH_TOKEN": "set" if os.getenv("TWILIO_AUTH_TOKEN") else "missing",
+            "TWILIO_FROM_NUMBER": os.getenv("TWILIO_FROM_NUMBER", "missing"),
+        }
+    else:
+        cfg = {
+            "ASTERISK_ARI_URL": ASTERISK_ARI_URL,
+            "ASTERISK_ARI_USER": ASTERISK_ARI_USER,
+            "SPEECHOPS_BASE_URL": SPEECHOPS_BASE_URL,
+            "SPEECHOPS_TTS_PROVIDER": os.getenv("SPEECHOPS_TTS_PROVIDER", "gemini"),
+            "SPEECHOPS_TTS_VOICE": os.getenv("SPEECHOPS_TTS_VOICE", "Kore"),
+        }
+    return JSONResponse({"provider": provider, "config": cfg})
+
+
+app = Starlette(
+    routes=[
+        Route("/api/health",        health),
+        Route("/api/capabilities",  capabilities),
+        Route("/api/calls",         calls_list),
+        Route("/api/calls/{id:int}", call_detail),
+        Route("/api/stats",         stats),
+        Route("/api/status",        status),
+    ],
+    lifespan=lifespan,
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        f"http://localhost:10953",
+        f"http://127.0.0.1:10953",
+    ],
+    allow_methods=["GET"],
+    allow_headers=["*"],
+)
+
+
+if __name__ == "__main__":
+    uvicorn.run(app, host="0.0.0.0", port=BACKEND_PORT, log_level="info")
