@@ -22,7 +22,7 @@ New-Item -ItemType Directory -Force -Path "$PSScriptRoot\audio\fallback" | Out-N
 
 if (-not $WebappOnly) {
     Write-Host "Starting MCP server (stdio)..." -ForegroundColor Cyan
-    # MCP server runs stdio — started by Claude Desktop, not here.
+    # MCP server runs stdio - started by Claude Desktop, not here.
     # This script manages the webapp pair only.
     Write-Host "  MCP server is managed by Claude Desktop (stdio transport)" -ForegroundColor DarkGray
 }
@@ -57,7 +57,7 @@ if (-not $McpOnly) {
     if ($ready) {
         Write-Host "Backend ready." -ForegroundColor Green
     } else {
-        Write-Host "Backend did not respond in time — check logs." -ForegroundColor Yellow
+        Write-Host "Backend did not respond in time - check logs." -ForegroundColor Yellow
     }
 
     # Start frontend
