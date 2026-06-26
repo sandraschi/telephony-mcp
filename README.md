@@ -74,5 +74,20 @@ This project enforces the **Trinity Protocol**:
 ## 🤝 RoboFang Integration
 The gateway is designed to be called by the **RoboFang Council** (Orchestrator) during verified life-safety events.
 
+## 🌐 Fleet Ecosystem
+
+| Layer | Repo | What it provides | Hardware |
+|-------|------|-----------------|----------|
+| **Voice** | **telephony-mcp** (you are here) | PSTN calls via SIP trunk | Asterisk Docker |
+| **Data** | [4g-usb-phone-mcp](https://github.com/sandraschi/4g-usb-phone-mcp) | Signal telemetry, SMS, band lock | Huawei E3372 ($35) |
+| **RF** | `sdr-mcp` _(planned)_ | Raw spectrum, private cell | RTL-SDR v4 / HackRF |
+
+Telephony-mcp places calls _over_ the LTE link that 4g-usb-phone-mcp monitors
+and controls. In a field deployment, 4g-usb-phone-mcp checks signal quality
+before a call is placed, preventing expensive failed PSTN call attempts when
+the link is too poor. See [4g-usb-phone-mcp/llms-full.txt](https://github.com/sandraschi/4g-usb-phone-mcp)
+for detailed integration scenarios (signal-gated dispatch, SMS→voice escalation,
+field notebook PTT, and the planned sdr-mcp RF layer).
+
 ---
 *Engineering the digital bridge for autonomous agency.*
