@@ -1,11 +1,37 @@
 import { useEffect, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
-  Phone, MessageSquare, Activity, RefreshCw,
+  Phone, MessageSquare, Activity, RefreshCw, Moon, Sun,
   CheckCircle, XCircle, ChevronRight, Server, Mic,
   AlertTriangle, Clock, Hash
 } from 'lucide-react'
 import { create } from 'zustand'
+
+// EXPERIMENTAL light mode (invert hack). Not fleet standard - see index.css.
+// Toggling `.dark` off the root flips the invert filter; persisted so the
+// choice survives reloads. Delete this + the CSS block to revert.
+const THEME_KEY = 'telephony-light-mode'
+
+function useExperimentalTheme() {
+  const [light, setLight] = useState(() => {
+    try {
+      return localStorage.getItem(THEME_KEY) === '1'
+    } catch {
+      return false
+    }
+  })
+
+  useEffect(() => {
+    document.documentElement.classList.toggle('dark', !light)
+    try {
+      localStorage.setItem(THEME_KEY, light ? '1' : '0')
+    } catch {
+      // ignore storage errors
+    }
+  }, [light])
+
+  return { light, toggle: () => setLight((v) => !v) }
+}
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -345,6 +371,7 @@ function StatusPage() {
 
 export default function App() {
   const { page, setPage, fetchAll, loading, health } = useStore()
+  const { light, toggle } = useExperimentalTheme()
 
   useEffect(() => {
     fetchAll()
@@ -400,13 +427,24 @@ export default function App() {
           <span className="text-sm text-zinc-400">
             {page === 'log' ? 'Call Log' : 'System Status'}
           </span>
-          <button
-            onClick={() => fetchAll()}
-            className="flex items-center gap-1.5 text-xs text-zinc-500 hover:text-zinc-300 transition-colors"
-          >
-            <RefreshCw size={13} className={loading ? 'animate-spin' : ''} />
-            Refresh
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={toggle}
+              className="p-2 rounded-md text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 transition-colors"
+              title={light ? "Switch to dark (experimental light mode)" : "Switch to light (experimental, ugly)"}
+              aria-label="Toggle light mode (experimental)"
+            >
+              {light ? <Moon size={14} /> : <Sun size={14} />}
+            </button>
+            <button
+              onClick={() => fetchAll()}
+              className="flex items-center gap-1.5 text-xs text-zinc-500 hover:text-zinc-300 transition-colors"
+            >
+              <RefreshCw size={13} className={loading ? 'animate-spin' : ''} />
+              Refresh
+            </button>
+          </div>
         </header>
 
         <div className="flex-1 p-6 overflow-auto">
