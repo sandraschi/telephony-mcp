@@ -2,7 +2,7 @@
 #
 # JSON-backed contact store.
 # Resolves names ("Steve", "Marion") to E.164 numbers (+43...).
-# File: data/contacts.json — created on first write.
+# File: data/contacts.json - created on first write.
 
 import asyncio
 import json
@@ -40,9 +40,7 @@ def _load() -> dict[str, dict]:
 
 def _save(contacts: dict[str, dict]) -> None:
     CONTACTS_PATH.parent.mkdir(parents=True, exist_ok=True)
-    CONTACTS_PATH.write_text(
-        json.dumps(contacts, ensure_ascii=False, indent=2), encoding="utf-8"
-    )
+    CONTACTS_PATH.write_text(json.dumps(contacts, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
 async def resolve(name_or_number: str) -> tuple[str, str] | None:

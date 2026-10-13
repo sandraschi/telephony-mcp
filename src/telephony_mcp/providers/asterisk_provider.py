@@ -28,7 +28,7 @@ class AsteriskProvider(TelephonyProvider):
         Full SIP URIs   → PJSIP/linphone@localhost (test calls)
         """
         if to.startswith("sip:"):
-            # Already a SIP URI — strip prefix for PJSIP dial
+            # Already a SIP URI - strip prefix for PJSIP dial
             return f"PJSIP/{to[4:]}"
         return f"PJSIP/{self.outbound_endpoint}/sip:{to}"
 
@@ -42,13 +42,11 @@ class AsteriskProvider(TelephonyProvider):
         # Step 1: get audio
         wav_path = await synthesize_wav(message, script_type)
         if wav_path is None:
-            logger.warning("No audio available — call will connect silently")
+            logger.warning("No audio available - call will connect silently")
 
         # Step 2: originate + lifecycle
         endpoint = self._build_endpoint(to_number)
-        async with ARIClient(
-            self.ari_url, self.ari_user, self.ari_pass, self.app_name
-        ) as ari:
+        async with ARIClient(self.ari_url, self.ari_user, self.ari_pass, self.app_name) as ari:
             result = await ari.call_and_play(endpoint, wav_path)
 
         return result
@@ -56,9 +54,9 @@ class AsteriskProvider(TelephonyProvider):
     async def send_sms(self, to_number: str, text: str) -> dict[str, Any]:
         """
         SIP MESSAGE (SMS over SIP) is trunk-dependent.
-        Most Austrian SIP trunks do not support it — use Twilio for SMS.
+        Most Austrian SIP trunks do not support it - use Twilio for SMS.
         """
-        logger.info(f"SIP SMS to {to_number} — not supported by Asterisk provider")
+        logger.info(f"SIP SMS to {to_number} - not supported by Asterisk provider")
         return {
             "success": False,
             "error": (

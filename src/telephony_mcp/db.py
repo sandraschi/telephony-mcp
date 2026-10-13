@@ -4,12 +4,11 @@
 # Accessed by both the MCP tools (writes) and the Starlette webapp (reads).
 
 import asyncio
-import json
 import logging
 import os
 import sqlite3
-from dataclasses import asdict, dataclass
-from datetime import datetime, timezone
+from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -26,17 +25,17 @@ DB_PATH = Path(
 @dataclass
 class CallRecord:
     id: int | None
-    ts: str               # ISO-8601 UTC
-    op: str               # make_call | send_sms | dispatch_test
+    ts: str  # ISO-8601 UTC
+    op: str  # make_call | send_sms | dispatch_test
     to_number: str
     message: str
     script_type: str
-    provider: str         # asterisk | twilio | mock
+    provider: str  # asterisk | twilio | mock
     success: bool
     call_id: str | None
     error: str | None
     audio_played: bool
-    duration_ms: int      # wall time of the operation
+    duration_ms: int  # wall time of the operation
 
 
 def _get_conn() -> sqlite3.Connection:
@@ -77,6 +76,7 @@ def init_db() -> None:
 
 async def log_call(record: dict[str, Any]) -> int:
     """Insert a call record. Returns the new row id."""
+
     def _insert():
         with _get_conn() as conn:
             cur = conn.execute(
@@ -85,7 +85,7 @@ async def log_call(record: dict[str, Any]) -> int:
                     success, call_id, error, audio_played, duration_ms)
                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (
-                    record.get("ts", datetime.now(timezone.utc).isoformat()),
+                    record.get("ts", datetime.now(UTC).isoformat()),
                     record["op"],
                     record.get("contact_name"),
                     record["to_number"],

@@ -8,7 +8,9 @@ class TelephonyProvider(ABC):
     """Base interface for telephony providers (Twilio, Asterisk, etc.)."""
 
     @abstractmethod
-    async def make_call(self, to_number: str, message: str, script_type: str = "emergency") -> dict[str, Any]:
+    async def make_call(
+        self, to_number: str, message: str, script_type: str = "emergency"
+    ) -> dict[str, Any]:
         """
         Initiates an outbound call with a specific message.
         Returns a dict with success/error/call_id.

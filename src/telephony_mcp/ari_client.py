@@ -198,7 +198,7 @@ class ARIClient:
             logger.warning(f"ARI hangup error: {e}")
 
     # ------------------------------------------------------------------
-    # ARI WebSocket — wait for StasisStart
+    # ARI WebSocket - wait for StasisStart
     # ------------------------------------------------------------------
 
     async def _wait_for_stasis_start(self, channel_id: str) -> bool:
@@ -208,7 +208,9 @@ class ARIClient:
         """
         # Convert http(s) → ws(s)
         ws_base = self.base_url.replace("https://", "wss://").replace("http://", "ws://")
-        ws_url = f"{ws_base}/events?app={self.app_name}&api_key={self.auth.login}:{self.auth.password}"
+        ws_url = (
+            f"{ws_base}/events?app={self.app_name}&api_key={self.auth.login}:{self.auth.password}"
+        )
 
         try:
             async with self._session.ws_connect(ws_url) as ws:
@@ -224,7 +226,10 @@ class ARIClient:
                         if etype == "StasisStart" and echan == channel_id:
                             logger.info(f"StasisStart received for {channel_id}")
                             return True
-                        if etype in ("ChannelDestroyed", "ChannelHangupRequest") and echan == channel_id:
+                        if (
+                            etype in ("ChannelDestroyed", "ChannelHangupRequest")
+                            and echan == channel_id
+                        ):
                             logger.info(f"Channel {channel_id} destroyed before answer")
                             return False
         except Exception as e:

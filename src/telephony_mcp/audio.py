@@ -3,7 +3,7 @@
 # Audio synthesis layer for telephony-mcp.
 #
 # Strategy:
-#   1. Call speechops REST API (GET /api/v1/tts/wav) — Gemini by default (best German).
+#   1. Call speechops REST API (GET /api/v1/tts/wav) - Gemini by default (best German).
 #   2. If speechops is unreachable or returns an error, fall back to a pre-recorded
 #      WAV from audio/fallback/{script_type}.wav.
 #   3. Write the result to a shared temp dir that Asterisk can read via its
@@ -18,7 +18,7 @@ import aiohttp
 
 logger = logging.getLogger(__name__)
 
-# Where synthesized WAVs land — must be mounted into the Asterisk container.
+# Where synthesized WAVs land - must be mounted into the Asterisk container.
 # Map container path /var/lib/asterisk/sounds/telephony_tts → this host dir.
 AUDIO_SHARE = Path(
     os.getenv(
@@ -62,7 +62,7 @@ async def synthesize_wav(text: str, script_type: str = "emergency") -> Path | No
     fallback = FALLBACK_DIR / f"{safe_type}.wav"
     if fallback.exists():
         shutil.copy2(fallback, out_path)
-        logger.warning(f"speechops unreachable — using fallback WAV: {fallback}")
+        logger.warning(f"speechops unreachable - using fallback WAV: {fallback}")
         return out_path
 
     logger.error(
