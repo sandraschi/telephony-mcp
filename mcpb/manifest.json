@@ -1,0 +1,29 @@
+{
+  "manifest_version": "0.2",
+  "name": "telephony-mcp",
+  "version": "0.2.0",
+  "description": "FastMCP 3.2 Telephony Bridge — emergency calls via Asterisk/ARI+speechops TTS or Twilio",
+  "author": { "name": "sandraschi" },
+  "server": {
+    "type": "python",
+    "entry_point": "src/telephony_mcp/__main__.py",
+    "mcp_config": {
+      "command": "uv",
+      "args": ["run","--directory","${PWD}","python","-m","telephony_mcp"],
+      "env": {
+        "PYTHONPATH": "${PWD}/src",
+        "PYTHONUNBUFFERED": "1"
+      }
+    }
+  },
+  "tools": [
+    { "name": "make_call", "description": "make_call" },
+    { "name": "make_emergency_call", "description": "make_emergency_call" },
+    { "name": "send_sms", "description": "send_sms" },
+    { "name": "telephony_dispatch_test", "description": "telephony_dispatch_test" },
+    { "name": "add_contact", "description": "add_contact" },
+    { "name": "list_contacts", "description": "list_contacts" },
+    { "name": "remove_contact", "description": "remove_contact" },
+    { "name": "telephony_status", "description": "telephony_status" }
+  ]
+}
