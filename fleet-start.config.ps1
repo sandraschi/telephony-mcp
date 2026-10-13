@@ -1,0 +1,24 @@
+# Per-repo fleet start config for telephony-mcp
+# Edit ports/backend target here - start.ps1 is fleet-standard.
+@{
+    Name         = 'telephony-mcp'
+    BackendPort  = 10952
+    FrontendPort = 10953
+    HealthPath   = '/api/health'
+    WebRoot      = 'webapp\frontend'
+    Backend = @{
+        Kind          = 'uvicorn-web-app'
+        UvicornTarget = 'main:app'
+        WorkDir       = 'webapp\backend'
+        PythonPath    = 'webapp\backend;src'
+        SyncExtras    = @('dev')
+        SyncOnStart  = $true
+        Env           = @{ WEB_PORT = '10952' }
+    }
+    Frontend = @{
+        Kind           = 'vite-npm'
+        PackageManager = 'npm'
+        PortEnvVar     = 'VITE_PORT'
+        ApiTargetEnv   = 'VITE_API_TARGET'
+    }
+}

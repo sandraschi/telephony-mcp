@@ -1,0 +1,20 @@
+# Per-repo fleet start config for telephony-mcp
+# Edit ports/backend target here - start.ps1 is fleet-standard.
+@{
+    Name         = 'telephony-mcp'
+    BackendPort  = 10952
+    FrontendPort = 10953
+    HealthPath   = '/api/health'
+    WebRoot      = 'webapp\frontend'
+    Backend = @{
+        Kind       = 'module-serve'
+        Module     = 'telephony_mcp'
+        SyncExtras = @('dev')
+    }
+    Frontend = @{
+        Kind           = 'vite-npm'
+        PackageManager = 'npm'
+        PortEnvVar     = 'VITE_PORT'
+        ApiTargetEnv   = 'VITE_API_TARGET'
+    }
+}

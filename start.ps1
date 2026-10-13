@@ -1,86 +1,99 @@
-Param([switch]$Headless, [switch]$WebappOnly, [switch]$McpOnly)
+﻿# Fleet unified launcher - do not edit logic here.
+# Change fleet-start.config.ps1 at the repo root instead.
+param(
+    [switch]$Headless,
+    [switch]$BackendOnly,
+    [switch]$FrontendOnly,
+    [switch]$NoBrowser,
+    [switch]$ReuseIfRunning
+)
 
 $ErrorActionPreference = 'Stop'
-Set-Location $PSScriptRoot
+$ReposRoot = if ($env:FLEET_REPOS_ROOT) { $env:FLEET_REPOS_ROOT } else { 'D:\Dev\repos' }
+$EnginePath = Join-Path $ReposRoot 'mcp-central-docs\scripts\Invoke-FleetWebappStart.ps1'
 
-$BackendPort  = 10952
-$FleetStartPath = Join-Path $ProjectRoot "scripts\FleetStartMode.ps1"
-if (-not (Test-Path -LiteralPath $FleetStartPath)) {
-    Write-Host "ERROR: Missing vendored launcher helper: $FleetStartPath" -ForegroundColor Red
+$configCandidates = @(
+    (Join-Path $PSScriptRoot 'fleet-start.config.ps1'),
+    (Join-Path (Split-Path -Parent $PSScriptRoot) 'fleet-start.config.ps1')
+)
+$configPath = $null
+foreach ($candidate in $configCandidates) {
+    if (Test-Path -LiteralPath $candidate) {
+        $configPath = $candidate
+        break
+    }
+}
+if (-not $configPath) {
+    Write-Host 'ERROR: Missing fleet-start.config.ps1 (repo root or beside start.ps1).' -ForegroundColor Red
     exit 1
 }
-. $FleetStartPath
 
-$FrontendPort = 10953
-
-# Clear ports
-foreach ($port in @($BackendPort, $FrontendPort)) {
-    $procs = Get-NetTCPConnection -LocalPort $port -ErrorAction SilentlyContinue
-    if ($procs) {
-        $procs | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }
-        Write-Host "Cleared port $port" -ForegroundColor DarkGray
-    }
+# Mode 1: Central Fleet Engine (when mcp-central-docs is available)
+if (Test-Path -LiteralPath $EnginePath) {
+    . $EnginePath
+    Start-FleetWebapp @PSBoundParameters -ConfigPath $configPath -LauncherRoot $PSScriptRoot
+    exit 0
 }
 
-# Ensure data + audio dirs
-New-Item -ItemType Directory -Force -Path "$PSScriptRoot\data"        | Out-Null
-New-Item -ItemType Directory -Force -Path "$PSScriptRoot\audio\tts"   | Out-Null
-New-Item -ItemType Directory -Force -Path "$PSScriptRoot\audio\fallback" | Out-Null
+# Mode 2: Standalone Fallback (Naked install on new machine / public user clone)
+Write-Host "Central fleet engine not found ($EnginePath) - starting in standalone mode." -ForegroundColor Yellow
 
-if (-not $WebappOnly) {
-    Write-Host "Starting MCP server (stdio)..." -ForegroundColor Cyan
-    # MCP server runs stdio - started by Claude Desktop, not here.
-    # This script manages the webapp pair only.
-    Write-Host "  MCP server is managed by Claude Desktop (stdio transport)" -ForegroundColor DarkGray
-}
+$cfg = . $configPath
+$repoRoot = Split-Path -Parent $PSScriptRoot
+if (Test-Path (Join-Path $PSScriptRoot 'pyproject.toml')) { $repoRoot = $PSScriptRoot }
 
-if (-not $McpOnly) {
-    # Install frontend deps if needed
-    $nodeModules = "$PSScriptRoot\webapp\frontend\node_modules"
-    if (-not (Test-Path $nodeModules)) {
-        Write-Host "Installing frontend dependencies..." -ForegroundColor Yellow
-        Push-Location "$PSScriptRoot\webapp\frontend"
-        & "C:\Program Files\nodejs\npm.cmd" install
-        Pop-Location
-    }
+$backendPort = if ($cfg.BackendPort) { [int]$cfg.BackendPort } else { 10720 }
+$frontendPort = if ($cfg.FrontendPort) { [int]$cfg.FrontendPort } else { 10721 }
 
-    # Start backend
-    Write-Host "Starting webapp backend on :$BackendPort..." -ForegroundColor Cyan
-    $backendJob = Start-Process pwsh -ArgumentList @(
-        '-NoProfile', '-Command',
-        "Set-Location '$PSScriptRoot'; uv run python webapp/backend/main.py"
-    ) -PassThru -WindowStyle Normal
+$webRel = if ($cfg.WebRoot) { $cfg.WebRoot } else { 'webapp\frontend' }
+$webRoot = if ([System.IO.Path]::IsPathRooted($webRel)) { $webRel } else { Join-Path $repoRoot $webRel }
+if (-not (Test-Path -LiteralPath $webRoot)) { $webRoot = $PSScriptRoot }
 
-    # Wait for backend
-    $deadline = (Get-Date).AddSeconds(15)
-    $ready = $false
-    while ((Get-Date) -lt $deadline) {
-        try {
-            $r = Invoke-WebRequest -Uri "http://localhost:$BackendPort/api/health" -UseBasicParsing -TimeoutSec 2 -ErrorAction Stop
-            if ($r.StatusCode -eq 200) { $ready = $true; break }
-        } catch {}
-        Start-Sleep -Milliseconds 500
-    }
-    if ($ready) {
-        Write-Host "Backend ready." -ForegroundColor Green
+# 1. Start Backend
+if (-not $FrontendOnly -and $backendPort -gt 0 -and $cfg.Backend.Kind -ne 'none') {
+    Write-Host "Starting backend on :$backendPort ..." -ForegroundColor Cyan
+    $bWorkDir = if ($cfg.Backend.WorkDir) {
+        if ([System.IO.Path]::IsPathRooted($cfg.Backend.WorkDir)) { $cfg.Backend.WorkDir } else { Join-Path $repoRoot $cfg.Backend.WorkDir }
+    } else { $repoRoot }
+
+    $pyPath = if ($cfg.Backend.PythonPath) {
+        $parts = $cfg.Backend.PythonPath -split ';' | ForEach-Object {
+            if ([System.IO.Path]::IsPathRooted($_)) { $_ } else { Join-Path $repoRoot $_ }
+        }
+        $parts -join ';'
+    } else { "$repoRoot;$repoRoot\src" }
+
+    $backendExec = if ($cfg.Backend.Kind -eq 'module-serve') {
+        $mod = if ($cfg.Backend.Module) { $cfg.Backend.Module } else { $cfg.Name }
+        $args = if ($cfg.Backend.ServeArgs) { $cfg.Backend.ServeArgs } else { '--serve' }
+        "python -m $mod $args"
+    } elseif ($cfg.Backend.Kind -eq 'cli-serve') {
+        $mod = if ($cfg.Backend.Module) { $cfg.Backend.Module } else { $cfg.Name }
+        "$mod --serve --port $backendPort"
     } else {
-        Write-Host "Backend did not respond in time - check logs." -ForegroundColor Yellow
+        $target = if ($cfg.Backend.UvicornTarget) { $cfg.Backend.UvicornTarget } else { 'app.main:app' }
+        "uvicorn $target --host 127.0.0.1 --port $backendPort"
     }
 
-    # Start frontend
-    Write-Host "Starting webapp frontend on :$FrontendPort..." -ForegroundColor Cyan
-    Push-Location "$PSScriptRoot\webapp\frontend"
-    $frontendJob = Start-Process pwsh -ArgumentList @(
-        '-NoProfile', '-Command',
-        "Set-Location '$PSScriptRoot\webapp\frontend'; & 'C:\Program Files\nodejs\npm.cmd' run dev"
-    ) -PassThru -WindowStyle Normal
-    Pop-Location
+    $bCmd = "`$env:PYTHONPATH = '$pyPath'; `$env:WEB_PORT = '$backendPort'; Set-Location '$bWorkDir'; uv run --project '$repoRoot' $backendExec"
+    Start-Process powershell.exe -ArgumentList @('-NoProfile', '-NoExit', '-Command', $bCmd) -WorkingDirectory $bWorkDir
+}
 
-    Start-Sleep -Seconds 3
-    Write-Host ""
-    Write-Host "Telephony MCP Audit Dashboard" -ForegroundColor Green
-    Write-Host "  Frontend : http://localhost:$FrontendPort" -ForegroundColor White
-    Write-Host "  Backend  : http://localhost:$BackendPort/api/health" -ForegroundColor White
-    Write-Host ""
-    Start-Process "http://localhost:$FrontendPort"
+# 2. Start Frontend
+if (-not $BackendOnly -and $frontendPort -gt 0 -and (Test-Path -LiteralPath $webRoot)) {
+    Write-Host "Starting frontend on :$frontendPort ..." -ForegroundColor Cyan
+    if ($cfg.Frontend.PortEnvVar) { Set-Item -Path "Env:$($cfg.Frontend.PortEnvVar)" -Value "$frontendPort" }
+    if ($cfg.Frontend.ApiTargetEnv) { Set-Item -Path "Env:$($cfg.Frontend.ApiTargetEnv)" -Value "http://127.0.0.1:$backendPort" }
+
+    $cmdFlag = if ($Headless) { '/c' } else { '/k' }
+    if ($cfg.Frontend.Kind -eq 'next') {
+        Start-Process cmd.exe -ArgumentList @($cmdFlag, "npm run dev -- -p $frontendPort -H 127.0.0.1") -WorkingDirectory $webRoot
+    } else {
+        Start-Process cmd.exe -ArgumentList @($cmdFlag, "npm run dev -- --port $frontendPort --host 127.0.0.1") -WorkingDirectory $webRoot
+    }
+}
+
+# 3. Open Browser
+if (-not $NoBrowser -and -not $Headless -and -not $BackendOnly -and $frontendPort -gt 0) {
+    Start-Process "http://127.0.0.1:$frontendPort/"
 }
