@@ -5,8 +5,9 @@ import logging
 import os
 from typing import Any
 
-from telephony_mcp.providers.base import TelephonyProvider
 from twilio.rest import Client
+
+from telephony_mcp.providers.base import TelephonyProvider
 
 logger = logging.getLogger(__name__)
 
@@ -21,7 +22,7 @@ class TwilioProvider(TelephonyProvider):
             self.client = Client(self.account_sid, self.auth_token)
         else:
             self.client = None
-            logger.warning("Twilio credentials missing — running in mock mode.")
+            logger.warning("Twilio credentials missing - running in mock mode.")
 
     async def make_call(
         self, to_number: str, message: str, script_type: str = "emergency"
@@ -30,9 +31,9 @@ class TwilioProvider(TelephonyProvider):
             return {"success": True, "call_id": "MOCK_TWILIO_CALL", "mode": "mock"}
 
         twiml = (
-            f'<Response>'
+            f"<Response>"
             f'<Say language="de-AT" voice="Polly.Marlene-Neural">{message}</Say>'
-            f'</Response>'
+            f"</Response>"
         )
 
         def _create():

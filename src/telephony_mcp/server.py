@@ -1,19 +1,24 @@
 # src/telephony_mcp/server.py
 
-import asyncio
 import logging
 import os
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
-from fastmcp import FastMCP, Context
+from fastmcp import Context, FastMCP
 from fastmcp.server import create_proxy
 
 from telephony_mcp.contacts import (
     add_contact as _add_contact,
+)
+from telephony_mcp.contacts import (
     list_contacts as _list_contacts,
+)
+from telephony_mcp.contacts import (
     remove_contact as _remove_contact,
+)
+from telephony_mcp.contacts import (
     resolve,
 )
 from telephony_mcp.db import get_stats, init_db, log_call
@@ -63,6 +68,7 @@ async def _resolve_or_fail(contact: str) -> tuple[str, str] | None:
 
 # ── Call tools ────────────────────────────────────────────────────────────────
 
+
 @mcp.tool()
 async def make_call(
     contact: str,
@@ -80,7 +86,7 @@ async def make_call(
     Args:
         contact: Contact name or E.164 number.
         message: Text to speak. German and English both work.
-        script_type: Hint for audio caching — 'general', 'emergency', 'test'.
+        script_type: Hint for audio caching - 'general', 'emergency', 'test'.
 
     Returns:
         dict with success, call_id, mode, contact_name, to_number, error.
@@ -99,20 +105,22 @@ async def make_call(
     result = await provider.make_call(to_number, message, script_type=script_type)
     duration_ms = int((time.monotonic() - t0) * 1000)
 
-    await log_call({
-        "ts": datetime.now(timezone.utc).isoformat(),
-        "op": "make_call",
-        "contact_name": contact_name,
-        "to_number": to_number,
-        "message": message,
-        "script_type": script_type,
-        "provider": result.get("mode", os.getenv("TELEPHONY_PROVIDER", "asterisk")),
-        "success": result.get("success", False),
-        "call_id": result.get("call_id"),
-        "error": result.get("error"),
-        "audio_played": result.get("audio_played", False),
-        "duration_ms": duration_ms,
-    })
+    await log_call(
+        {
+            "ts": datetime.now(UTC).isoformat(),
+            "op": "make_call",
+            "contact_name": contact_name,
+            "to_number": to_number,
+            "message": message,
+            "script_type": script_type,
+            "provider": result.get("mode", os.getenv("TELEPHONY_PROVIDER", "asterisk")),
+            "success": result.get("success", False),
+            "call_id": result.get("call_id"),
+            "error": result.get("error"),
+            "audio_played": result.get("audio_played", False),
+            "duration_ms": duration_ms,
+        }
+    )
     return {**result, "contact_name": contact_name, "to_number": to_number}
 
 
@@ -164,20 +172,22 @@ async def send_sms(
     result = await provider.send_sms(to_number, text)
     duration_ms = int((time.monotonic() - t0) * 1000)
 
-    await log_call({
-        "ts": datetime.now(timezone.utc).isoformat(),
-        "op": "send_sms",
-        "contact_name": contact_name,
-        "to_number": to_number,
-        "message": text,
-        "script_type": "sms",
-        "provider": result.get("mode", os.getenv("TELEPHONY_PROVIDER", "asterisk")),
-        "success": result.get("success", False),
-        "call_id": result.get("sms_id"),
-        "error": result.get("error"),
-        "audio_played": False,
-        "duration_ms": duration_ms,
-    })
+    await log_call(
+        {
+            "ts": datetime.now(UTC).isoformat(),
+            "op": "send_sms",
+            "contact_name": contact_name,
+            "to_number": to_number,
+            "message": text,
+            "script_type": "sms",
+            "provider": result.get("mode", os.getenv("TELEPHONY_PROVIDER", "asterisk")),
+            "success": result.get("success", False),
+            "call_id": result.get("sms_id"),
+            "error": result.get("error"),
+            "audio_played": False,
+            "duration_ms": duration_ms,
+        }
+    )
     return {**result, "contact_name": contact_name, "to_number": to_number}
 
 
@@ -198,8 +208,7 @@ async def telephony_dispatch_test(
         dict with success, call_id, mode, audio_played, error.
     """
     test_msg = (
-        "Achtung. Dies ist ein Test der RoboFang Rettungskette. "
-        "Bitte bestaetigen Sie den Empfang."
+        "Achtung. Dies ist ein Test der RoboFang Rettungskette. Bitte bestaetigen Sie den Empfang."
     )
     await ctx.info(f"Dispatch test → {sip_uri}")
     provider = get_provider()
@@ -207,24 +216,27 @@ async def telephony_dispatch_test(
     result = await provider.make_call(sip_uri, test_msg, script_type="test")
     duration_ms = int((time.monotonic() - t0) * 1000)
 
-    await log_call({
-        "ts": datetime.now(timezone.utc).isoformat(),
-        "op": "dispatch_test",
-        "contact_name": "TEST",
-        "to_number": sip_uri,
-        "message": test_msg,
-        "script_type": "test",
-        "provider": result.get("mode", os.getenv("TELEPHONY_PROVIDER", "asterisk")),
-        "success": result.get("success", False),
-        "call_id": result.get("call_id"),
-        "error": result.get("error"),
-        "audio_played": result.get("audio_played", False),
-        "duration_ms": duration_ms,
-    })
+    await log_call(
+        {
+            "ts": datetime.now(UTC).isoformat(),
+            "op": "dispatch_test",
+            "contact_name": "TEST",
+            "to_number": sip_uri,
+            "message": test_msg,
+            "script_type": "test",
+            "provider": result.get("mode", os.getenv("TELEPHONY_PROVIDER", "asterisk")),
+            "success": result.get("success", False),
+            "call_id": result.get("call_id"),
+            "error": result.get("error"),
+            "audio_played": result.get("audio_played", False),
+            "duration_ms": duration_ms,
+        }
+    )
     return result
 
 
 # ── Contact tools ─────────────────────────────────────────────────────────────
+
 
 @mcp.tool()
 async def add_contact(
@@ -277,6 +289,7 @@ async def remove_contact(name: str, ctx: Context) -> dict[str, Any]:
 
 
 # ── Status ────────────────────────────────────────────────────────────────────
+
 
 @mcp.tool()
 async def telephony_status(ctx: Context) -> dict[str, Any]:
