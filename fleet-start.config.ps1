@@ -4,7 +4,8 @@
     Name         = 'telephony-mcp'
     BackendPort  = 10952
     FrontendPort = 10953
-    HealthPath   = '/api/health'
+    HealthPath      = '/api/health'
+    HealthTimeoutSec = 60
     WebRoot      = 'webapp\frontend'
     Backend = @{
         Kind          = 'uvicorn-web-app'
@@ -13,12 +14,13 @@
         PythonPath    = 'webapp\backend;src'
         SyncExtras    = @('dev')
         SyncOnStart  = $true
-        Env           = @{ WEB_PORT = '10952' }
+        Env           = @{ WEB_PORT = '10952'; TELEPHONY_BACKEND_PORT = '10952' }
     }
     Frontend = @{
         Kind           = 'vite-npm'
         PackageManager = 'npm'
         PortEnvVar     = 'VITE_PORT'
         ApiTargetEnv   = 'VITE_API_TARGET'
+        InstallOnStart = $true
     }
 }

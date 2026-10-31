@@ -42,20 +42,22 @@ If you prefer not to use `just`:
    uv sync --all-extras
    ```
 4. Start the server:
-   ```powershell
-   # stdio mode (for MCP clients like Claude Desktop)
-   uv run python -m telephony_mcp.server
+    ```powershell
+    # stdio mode (for MCP clients like Claude Desktop)
+    uv run python -m telephony_mcp.server
 
-   # HTTP mode (for web dashboard)
-   uv run uvicorn telephony_mcp.server:app --port 10952
-   ```
+    # HTTP dashboard backend (audit log API on :10952)
+    uv run --project . python -m uvicorn main:app --host 127.0.0.1 --port 10952 --app-dir webapp\backend
+    # or: .\start.ps1 -BackendOnly
+    ```
 
 4. (optional) Start the frontend:
-   ```powershell
-   cd webapp
-   npm install
-   npm run dev
-   ```
+    ```powershell
+    cd webapp\frontend
+    npm install
+    npm run dev
+    # or: .\start.ps1 (starts backend + frontend on :10952/:10953)
+    ```
 
 5. Open `http://localhost:10952` or the frontend URL.
 

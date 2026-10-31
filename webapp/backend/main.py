@@ -29,7 +29,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
 
 from telephony_mcp.db import get_call, get_calls, get_stats, init_db
 
-BACKEND_PORT = int(os.getenv("TELEPHONY_BACKEND_PORT", "10952"))
+BACKEND_PORT = int(os.getenv("TELEPHONY_BACKEND_PORT", os.getenv("WEB_PORT", "10952")))
 ASTERISK_ARI_URL = os.getenv("ASTERISK_ARI_URL", "http://localhost:8088/ari")
 ASTERISK_ARI_USER = os.getenv("ASTERISK_ARI_USER", "robofang")
 ASTERISK_ARI_PASS = os.getenv("ASTERISK_ARI_PASS", "robofang_pass")
@@ -146,6 +146,23 @@ async def status(request: Request) -> JSONResponse:
     return JSONResponse({"provider": provider, "config": cfg})
 
 
+async def shutdown(request: Request) -> JSONResponse:
+    """Orderly shutdown for fleet restarts (POST /api/shutdown).
+
+    Lets the launcher drain DB writes before Restart-Service kills the
+    process. Uvicorn has no public shutdown API, so we exit after the
+    response flushes - same contract as other fleet Starlette backends.
+    """
+    import asyncio as _asyncio
+
+    async def _delayed_exit():
+        await _asyncio.sleep(0.5)
+        os._exit(0)
+
+    _asyncio.get_event_loop().create_task(_delayed_exit())
+    return JSONResponse({"status": "shutting_down"})
+
+
 app = Starlette(
     routes=[
         Route("/api/health",        health),
@@ -154,6 +171,7 @@ app = Starlette(
         Route("/api/calls/{id:int}", call_detail),
         Route("/api/stats",         stats),
         Route("/api/status",        status),
+        Route("/api/shutdown",      shutdown, methods=["POST"]),
     ],
     lifespan=lifespan,
 )
@@ -161,10 +179,10 @@ app = Starlette(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        f"http://localhost:10953",
-        f"http://127.0.0.1:10953",
+        "http://localhost:10953",
+        "http://127.0.0.1:10953",
     ],
-    allow_methods=["GET"],
+    allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["*"],
 )
 

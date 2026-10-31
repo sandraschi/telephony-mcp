@@ -178,8 +178,8 @@ function CallDetail({ record, onClose }: { record: CallRecord; onClose: () => vo
         {[
           ['Timestamp', fmtTs(record.ts)],
           ['Operation', opLabel[record.op] ?? record.op],
-          ['Contact', c.contact_name ?? c.to_number],
-          ['To', c.to_number],
+          ['Contact', record.contact_name ?? record.to_number],
+          ['To', record.to_number],
           ['Provider', record.provider],
           ['Script type', record.script_type],
           ['Duration', fmtDuration(record.duration_ms)],

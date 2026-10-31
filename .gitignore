@@ -8,3 +8,16 @@ mcpb/src/
 # added by wip-sweep v1 2026-10-13: generated dirs
 __pycache__/
 dist/
+
+# fleet standard ignores (telephony-mcp fix 2026-10-31: backend start repair)
+.venv/
+**/node_modules/
+webapp/frontend/dist/
+data/*.db*
+data/*.db-journal
+.env
+logs/
+*.bak
+*.bak.*
+webapp/frontend/src/*.bak
+webapp/backend/*.bak
