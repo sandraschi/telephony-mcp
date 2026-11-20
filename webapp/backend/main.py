@@ -68,22 +68,26 @@ async def health(request: Request) -> JSONResponse:
     except Exception:
         pass
 
-    return JSONResponse({
-        "status": "healthy",
-        "version": "0.2.0",
-        "asterisk": asterisk_ok,
-        "speechops": speechops_ok,
-    })
+    return JSONResponse(
+        {
+            "status": "healthy",
+            "version": "0.2.0",
+            "asterisk": asterisk_ok,
+            "speechops": speechops_ok,
+        }
+    )
 
 
 async def capabilities(request: Request) -> JSONResponse:
-    return JSONResponse({
-        "audit_log": True,
-        "asterisk_provider": True,
-        "twilio_provider": True,
-        "speechops_tts": True,
-        "fallback_audio": True,
-    })
+    return JSONResponse(
+        {
+            "audit_log": True,
+            "asterisk_provider": True,
+            "twilio_provider": True,
+            "speechops_tts": True,
+            "fallback_audio": True,
+        }
+    )
 
 
 async def calls_list(request: Request) -> JSONResponse:
@@ -98,8 +102,10 @@ async def calls_list(request: Request) -> JSONResponse:
     op_filter = request.query_params.get("op") or None
 
     rows = await get_calls(
-        limit=limit, offset=offset,
-        success_filter=success_filter, op_filter=op_filter,
+        limit=limit,
+        offset=offset,
+        success_filter=success_filter,
+        op_filter=op_filter,
     )
     for r in rows:
         r["success"] = bool(r["success"])
@@ -165,13 +171,13 @@ async def shutdown(request: Request) -> JSONResponse:
 
 app = Starlette(
     routes=[
-        Route("/api/health",        health),
-        Route("/api/capabilities",  capabilities),
-        Route("/api/calls",         calls_list),
+        Route("/api/health", health),
+        Route("/api/capabilities", capabilities),
+        Route("/api/calls", calls_list),
         Route("/api/calls/{id:int}", call_detail),
-        Route("/api/stats",         stats),
-        Route("/api/status",        status),
-        Route("/api/shutdown",      shutdown, methods=["POST"]),
+        Route("/api/stats", stats),
+        Route("/api/status", status),
+        Route("/api/shutdown", shutdown, methods=["POST"]),
     ],
     lifespan=lifespan,
 )
@@ -188,4 +194,4 @@ app.add_middleware(
 
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=BACKEND_PORT, log_level="info")
+    uvicorn.run(app, host="127.0.0.1", port=BACKEND_PORT, log_level="info")
